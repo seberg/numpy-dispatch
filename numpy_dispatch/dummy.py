@@ -15,7 +15,7 @@ class DummyArray(np.ndarray):
     def __array_module__(cls, types):
         print(types)
         for type in types:
-            if currtype is DummyArray:
+            if type is DummyArray:
                 continue
             if type is np.ndarray:
                 continue
@@ -41,7 +41,7 @@ class _FakeUfunc:
             nin = self.ufunc.nin
         if len(args) != nin:
             raise RuntimeError("Fake array_module: only inputs can be arguments to ufuncs")
-        
+
         new_args = []
         for arg in args:
             new = np.asarray(arg)
@@ -106,7 +106,7 @@ class _ArrayFunctionFallback:
 
 def inject_array_module(arrtype, known_types, module=None):
     """Inject an __array_module__ function into a type (not instance).
-    
+
     Parameters
     ----------
     arrtype : class

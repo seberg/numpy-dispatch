@@ -25,7 +25,7 @@ cdef Py_ssize_t _warning_contexts_used = 0
 
 def enable_dispatching_globally():
     """Globally enable dispatching for `get_array_module`.
-    
+
     Notes
     -----
     This function should be called *exactly* once by an end-user. It will
@@ -62,11 +62,13 @@ cdef dict _get_threadlocal_dict():
     cdef PyObject *thedict = PyThreadState_GetDict();
     if (thedict == NULL):
         thedict = PyEval_GetBuiltins();
-    
+
     return <dict>thedict
-    
+
 
 cdef class ensure_dispatching:
+    """Context manager to ensure that dispatching is enabled locally.
+    """
     cdef int entered
     def __cinit__(self):
         self.entered = False
@@ -88,7 +90,7 @@ cdef class ensure_dispatching:
         global _dispatching_contexts_used
         if not self.entered:
             return
-        
+
         cdef dict local_dict = _get_threadlocal_dict()
         local_dict["__numpy_dispatch_locally_ensured__"] = False
         _dispatching_contexts_used -= 1
@@ -104,14 +106,14 @@ cdef int _are_transition_warnings_enabled():
 
 cdef class future_dispatch_behavior:
     """Context manager which to opt-in into future behaviour, which is
-    either turning a DeprecationWarning into an error or 
-    
+    either turning a DeprecationWarning into an error or
+
     Notes
     -----
     Please only use this context manager locally. If this context manager
     is used, in principle an internal function is silently also opted in.
     Basically, we assume that any function which enables dispatching either:
-    
+
     1. Knows that all of its callees correctly support dispatching
     2. Better, ensure that all of its callees only get input of a well
        defined type for which opting in cannot possibly make a difference.
@@ -138,7 +140,7 @@ cdef class future_dispatch_behavior:
 
         if not self.entered:
             return
-        
+
         cdef dict local_dict = _get_threadlocal_dict()
         local_dict["__numpy_dispatch_no_warnings__"] = False
         _warning_contexts_used -= 1
@@ -151,8 +153,9 @@ cdef _give_fallback_warning(array_types, int stacklevel, fallback):
                 "Using default because no array-like was able to handle "
                 f"all involved types: {array_types!r}. This will raise an error "
                 "in the future\n"
-                "You can use `with numpy_dispatch.future_dispatch_behavior()` "
-                "turn this into an error right away.",
+                "You can use:\n"
+                "    with numpy_dispatch.future_dispatch_behavior()\n"
+                "to turn this into an error right away.",
                 DeprecationWarning, stacklevel=stacklevel)
             return
     elif fallback is not False:
@@ -165,7 +168,7 @@ cdef _give_fallback_warning(array_types, int stacklevel, fallback):
 
 
 def get_array_module(*args, default=numpy, modules=None, future_modules=False,
-                     fallback=False, int stacklevel=1):
+                     fallback=False, int stacklevel=1, enabled=None):
     """
     Return the array module based on the passed in objects (or actually
     their types).
@@ -186,26 +189,45 @@ def get_array_module(*args, default=numpy, modules=None, future_modules=False,
         None means all modules will be allowed, False means no modules are
         transitioning.
     fallback : False, "warn"
-        If set to False, an error will be given when no type can handle
-        all input types. If "warn" is passed, a DeprecationWarning is given
-        instead and `default` will be returned.
+        This affects what happens when either no type can handle all inputs
+        or the found module is in `future_modules` only.
+        In this case a fallback to the `default` may be used, which should
+        otherwise only happen if no arrays were passed in.
+        If set to False, an error will be given instead. If "warn" is passed,
+        a transition warning is given and `default` will be returned.
+        This is a DeprecationWarning if no common module is found.
+        If an invalid module is found (which is in `future_modules`) it changes
+        the `FutureWarning` message. (modules in the `future_modules` always
+        give a warning whether fallback is enabled or not).
+        Fallback is meant to be used for the initial transition from NumPy
+        only. After which it is expected to be False and thus have stricter
+        typing.
     stacklevel : int, default 1
         The warning stacklevel to use, defaults to 1. Most library functions
         should set this to 2 or higher so that the user code line is reported.
+    enabled : True or None
+        Allows forcing the use of dispatching for libraries which wish to
+        use it as part of their default API and that are not transitioning.
+        This can be used for newly developed code. Libraries should probably
+        be consistent and likely most libraries should not use this.
     """
     # Well, this turned out more like C code than cython code :)
 
-    if not _is_dispatching_enabled():
-        return default
+    if enabled is None:
+        if not _is_dispatching_enabled():
+            return default
+    elif enabled is not True:
+        raise RuntimeError("enabled must be True or None.")
 
     cdef Py_ssize_t num_args = len(args)
+    # This is a silly limitation with me writing too C-ish ugly code...
     if num_args > 50:
         raise RuntimeError(
                 "get_array_module() only supports 50 arguments currently.")
     cdef PyObject *array_types[50]
     cdef PyObject *array_objects[50]
     cdef PyObject *all_types[50]
-    
+
     cdef Py_ssize_t num_array_types = 0
     cdef Py_ssize_t num_all_types = 0
 
@@ -240,7 +262,7 @@ def get_array_module(*args, default=numpy, modules=None, future_modules=False,
     else:
         pytype_tuple = PyTuple_New(num_array_types)
         # TODO: Should there be a cache based on that tuple?
-        
+
         for i in range(num_array_types):
             Py_INCREF(<object>array_types[i])
             PyTuple_SET_ITEM(pytype_tuple, i, <object>array_types[i])
@@ -292,7 +314,8 @@ def get_array_module(*args, default=numpy, modules=None, future_modules=False,
         future_support = False
 
     if not future_support:
-        # There will not be future support
+        # There will not be future support (same error can occur when fallback
+        # is false.
         raise TypeError(
             f"Array module {module_name} for array-type {best_type!s} "
             f"found, but only {modules!r} are supported.")
@@ -303,15 +326,32 @@ def get_array_module(*args, default=numpy, modules=None, future_modules=False,
     if not _are_transition_warnings_enabled():
         return module
 
-    warnings.warn(
-        "In the future this function will stop interpreting "
-        f"these input arrays using the module {default.__name__}. "
-        f"Instead it will use the discovered module {module_name}.\n"
-        "To opt-out of this behaviour, cast your array manually, "
-        "opt in to the new behaviour use "
-        "`with numpy_dispatch.suppress_transition_warnings():`",
-        FutureWarning, stacklevel=stacklevel)
+    if fallback is False:
+        warnings.warn(
+            "In the future this function will use the array-module "
+            f"{module_name} of the array=type {best_type!s} instead of "
+            "raising an error.\n"
+            "To opt-out of this behaviour, cast your array manually. "
+            "To opt-in to the new behaviour use:\n"
+            "    with numpy_dispatch.future_dispatch_behavior():",
+            FutureWarning, stacklevel=stacklevel)
 
-    return default
+        raise TypeError(
+            f"Array module {module_name} for array-type {best_type!s} "
+            f"found, but only {modules!r} are supported.")
+
+    elif fallback == "warn":
+        warnings.warn(
+            "In the future this function will stop interpreting "
+            f"these input arrays using the module {default.__name__}. "
+            f"Instead it will use the discovered module {module_name}.\n"
+            "To opt-out of this behaviour, cast your array manually. "
+            "To opt-in to the new behaviour use:\n"
+            "    with numpy_dispatch.future_dispatch_behavior():",
+            FutureWarning, stacklevel=stacklevel)
+
+        return default
+    else:
+        raise RuntimeError("Internal error fallback has to be False or 'warn'.")
 
 

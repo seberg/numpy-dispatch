@@ -4,6 +4,7 @@ import numpy as np
 import warnings
 warnings.warn("This module is only for dirty testing!")
 
+
 class dummymod:
     __name__ = "numpy_dispatch.dummymod"
 
@@ -12,7 +13,7 @@ class dummymod:
 
 
 class DummyArray(np.ndarray):
-    def __array_module__(cls, types):
+    def __array_module__(self, types):
         print(types)
         for type in types:
             if type is DummyArray:
@@ -21,7 +22,7 @@ class DummyArray(np.ndarray):
                 continue
             break
         else:
-            return dummyarray_module
+            return dummymod
 
         return NotImplemented
 

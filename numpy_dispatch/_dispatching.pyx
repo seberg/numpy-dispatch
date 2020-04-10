@@ -2,8 +2,8 @@
 
 import warnings
 
-import numpy
-from numpy import ndarray
+import numpy as _numpy
+from numpy cimport ndarray
 
 from cpython cimport (
     PyObject, PyTuple_New, Py_INCREF, PyTuple_SET_ITEM, PyTuple_GET_ITEM)
@@ -17,6 +17,7 @@ __all__ = [
     "get_array_module", "enable_dispatching_globally", "ensure_dispatching",
     "future_dispatch_behavior"]
 
+cdef object numpy = _numpy  # avoid global python module lookup
 cdef int _dispatching_globally_enabled = False
 
 cdef Py_ssize_t _dispatching_contexts_used = 0
@@ -220,66 +221,72 @@ def get_array_module(*args, default=numpy, modules=None, future_modules=False,
         raise RuntimeError("enabled must be True or None.")
 
     cdef Py_ssize_t num_args = len(args)
-    # This is a silly limitation with me writing too C-ish ugly code...
-    if num_args > 50:
-        raise RuntimeError(
-                "get_array_module() only supports 50 arguments currently.")
-    cdef PyObject *array_types[50]
-    cdef PyObject *array_objects[50]
-    cdef PyObject *all_types[50]
 
-    cdef Py_ssize_t num_array_types = 0
+    # Note that array_objects only includes the first one of a given type
+    cdef list array_objects = []
+    cdef list all_types = []
+
     cdef Py_ssize_t num_all_types = 0
+    cdef Py_ssize_t num_arrays = 0
 
     cdef Py_ssize_t i, j
 
     for i in range(num_args):
-        pytype = type(args[i])
+        pyobj = args[i]
+        pytype = type(pyobj)
 
-        for j in range(num_all_types-1, 0, -1):
-            if pytype is <object>all_types[j]:
+        for j in range(num_all_types-1, -1, -1):
+            if pytype is all_types[j]:
                 break
         else:
-            all_types[num_all_types] = <PyObject *>pytype
+            all_types.append(pytype)
             num_all_types += 1
 
             if pytype is ndarray or hasattr(pytype, "__array_module__"):
-                array_types[num_array_types] = <PyObject *>pytype
-                array_objects[num_array_types] = PyTuple_GET_ITEM(args, i)
-                num_array_types += 1
+                # Either append the array, or insert it if it is a subclass
+                # of a previous one, this makes sure subclasses are inserted
+                # before classes.
+                # TODO: This implementation sorts the type tuple, that is
+                #       probably OK, but not specified (and not in the NEP)
+                for j in range(num_arrays):
+                    if issubclass(type(pyobj), type(array_objects[j])):
+                        array_objects.insert(j, pyobj)
+                        break
+                else:
+                    array_objects.append(pyobj)
+                num_arrays += 1
 
     best_type = None
 
-    if num_array_types == 0:
+    if num_arrays == 0:
         # We return the default if no array types are found.
         return default
 
-    if num_array_types == 1 and <object>array_types[0] is ndarray:
+    if num_arrays == 1 and type(array_objects[0]) is ndarray:
         # If NumPy is the only type, NumPy will be chosen, otherwise
         # NumPy will always defer (subclasses are not handled here)
         module, best_type = numpy, ndarray
 
     else:
-        pytype_tuple = PyTuple_New(num_array_types)
-        # TODO: Should there be a cache based on that tuple?
+        # Note: In theory we could add a super fast cache for this tuple?
+        pytype_tuple = PyTuple_New(num_arrays)
+        for i in range(num_arrays):
+            PyTuple_SET_ITEM(pytype_tuple, i, type(array_objects[i]))
 
-        for i in range(num_array_types):
-            Py_INCREF(<object>array_types[i])
-            PyTuple_SET_ITEM(pytype_tuple, i, <object>array_types[i])
-
-        for i in range(num_array_types):
-            pytype = <object>array_types[i]
-            if pytype is ndarray:
+        for i in range(num_arrays):
+            arr = array_objects[i]
+            array_type = type(arr)
+            if array_type is ndarray:
                 # Ignore NumPy (handled earlier)
                 continue
 
-            # call the actual method:
-            res = pytype.__array_module__(
-                    <object>array_objects[i], pytype_tuple)
+            # call the actual method, we look up __array_module__ twice,
+            # that could be optimized away.
+            res = array_type.__array_module__(arr, pytype_tuple)
             if res is NotImplemented:
                 continue
             module = res
-            best_type = pytype
+            best_type = array_type
             break
         else:
             # All types returned NotImplemented, if fallback is "warn"
@@ -290,7 +297,7 @@ def get_array_module(*args, default=numpy, modules=None, future_modules=False,
 
             return default
 
-    module_name = module.__name__
+    cdef str module_name = module.__name__
 
     # If module_name is included in `modules` we are finished:
     if modules is None:

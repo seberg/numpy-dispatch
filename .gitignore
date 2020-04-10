@@ -107,3 +107,5 @@ Thumbs.db
 
 # Things specific to this project #
 ###################################
+numpy_dispatch/_dispatching.c
+numpy_dispatch/_dispatching.html

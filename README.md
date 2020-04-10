@@ -3,6 +3,32 @@
 This package is an implementation for NumPy's `get_array_module` proposal.
 This proposal is written up in [NEP 37](https://numpy.org/neps/nep-0037-array-module.html).
 
+### Important Note
+
+**The API implemented here includes certain arguments that are *not* currenlty part of NEP 37.**
+These enable things that may never be part of the final implementation.
+There are two reasons for this:
+
+1. To allow to see how a transition may look like and can be implemented.
+2. To provide library authors with the flexibility to try various models.
+   It is not clear that library authors should have the option to limit
+   which array-modules are acceptable.
+3. See how context managers on the user-side can be designed to deal with
+   opt-in and transitions.
+
+Both of these *could* be part of the API, or we could provide help for how to
+implement them in a specific library, but the default is more likely for them
+to not be part of it at this time.
+
+Espeically point 2 is my own thought, and mostly an option I want library
+authors to be aware of.
+
+If libraries choose to use option 2., I could imagine it makes sense for them
+to allow users to extend the "acceptable-array-modules" list manually.
+That way a library can limit itself to tested array types while not limiting
+the users to try and use different array-types at their own risk.
+
+
 ## For End-Users
 
 End users will not use much of the module, except to enable the behaviour
@@ -70,7 +96,7 @@ is not expected to make a difference if enabled.
 Remember, you do _not_ have control to _disable_ dispatching.
 
 
-### More finegrained gontrol
+### More finegrained control
 
 To enable transition towards allowing certain or all types, there are a few
 additional options, for example:
@@ -80,7 +106,11 @@ onp = get_array_module(*arrays, modules="numpy", future_modules="dask.array")
 could be a spelling to say that currently NumPy is fully supported, and `dask`
 is supported, but the support will warn (the user can silence the warning).
 
-Giving `future_modules=None` would allow any and all module to be returned.
+Giving `future_modules=None` would allow any and all module to be returned,
+note that in general `modules=None` is probably the desired end result.
+
+Please see the below section for details on how a transition can look like
+currently.
 
 Library authors further have the option to provide the `default`, in case the
 library is originally written for something other than NumPy.
@@ -97,7 +127,7 @@ When such a transition happens two things change:
 
 1. When no array-module can be found because none of the array types
    understands the others, a `default` has to be returned during
-   a transition phase, this can be done using `fallback="warn"`
+   a transition phase, this can be done using `fallback="warn"`.
 2. `future_modules` allows to implement new modules, but not use them
    by default (give a `FutureWarning` instead).
 
@@ -111,6 +141,28 @@ from numpy_dispatch import future_dispatch_behavior
 with future_dispatch_behavior():
     library_function_doing_a_transition()
 ```
+
+### Library during transition
+
+A typical use-case should be a library transitioning from not supporting
+array-module, to supporting array-module always.
+This can currently be implemented by using:
+
+```python
+onp = get_array_module(*arrays,
+            modules="numpy", future_modules=None, fallback="warn")
+onp.asarray(arrays[0])  # etc.
+```
+For a library that used to just call `np.asarray()` *during transition* and
+```
+onp = get_array_module(*arrays)
+```
+when the transition is done.
+
+There are no additional features to allow an array-library to transition
+to implementing `__array_module__`. Such a library will need to give a
+generic `FutureWarning` and create its own context manager to opt-in to the
+new behaviour.
 
 
 ## Array object implementors

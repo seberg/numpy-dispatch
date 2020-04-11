@@ -42,9 +42,11 @@ with open(path.join(here, 'README.md'), 'r') as f:
 if __name__ == "__main__":
     from setuptools import setup, find_packages
     from Cython.Build import cythonize
+    import numpy
 
     setup(name='numpy-dispatch',
           ext_modules=cythonize("numpy_dispatch/_dispatching.pyx"),
+          include_dirs=[numpy.get_include()],
           version=get_version(),
           description='Generic dispatching for array-libraries',
           long_description=long_description,

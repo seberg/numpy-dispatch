@@ -3,24 +3,30 @@
 This package is an implementation for NumPy's `get_array_module` proposal.
 This proposal is written up in [NEP 37](https://numpy.org/neps/nep-0037-array-module.html).
 
+
 ### Important Note
 
 **The API implemented here includes certain arguments that are *not* currenlty part of NEP 37.**
 These enable things that may never be part of the final implementation.
-There are two reasons for this:
+There are three reasons for this:
 
-1. To allow to see how a transition may look like and can be implemented.
-2. To provide library authors with the flexibility to try various models.
+1. The implementation here **requires explicit Opt-In** by the end-user
+   because this was an early thought when scikit-learn experimented with
+   using this type of functionality.
+   It is unclear whether this is a desirable, and may also depend on other
+   API choices.
+2. To allow to see how a transition may look like and can be implemented.
+3. To provide library authors with the flexibility to try various models.
    It is not clear that library authors should have the option to limit
    which array-modules are acceptable.
-3. See how context managers on the user-side can be designed to deal with
+4. See how context managers on the user-side can be designed to deal with
    opt-in and transitions.
 
 Both of these *could* be part of the API, or we could provide help for how to
 implement them in a specific library, but the default is more likely for them
 to not be part of it at this time.
 
-Espeically point 2 is my own thought, and mostly an option I want library
+Especially point 2 is my own thought, and mostly an option I want library
 authors to be aware of.
 
 If libraries choose to use option 2., I could imagine it makes sense for them
@@ -75,19 +81,19 @@ except
 
 
 def library_function(arr1, arr2, **other_parameters):
-    onp = get_array_module(arr1, arr2)
+    npx = get_array_module(arr1, arr2)
 
-    arr1 = onp.asarray(arr1)
-    arr2 = onp.asarray(arr2)
+    arr1 = npx.asarray(arr1)
+    arr2 = npx.asarray(arr2)
 
-    # use onp instead of all numpy code
+    # use npx instead of all numpy code
 ```
 
 If your library has internal helper functions, the best way to write these
 is probably:
 ```python
-def internal_helper(*args, onp=np):
-   # old code, but replace `np` with `onp`.
+def internal_helper(*args, npx=np):
+   # old code, but replace `np` with `npx`.
 ```
 That way the module is passed around in a safe manner. If your library calls
 into other libraries which may or may not dispatch (or even dispatch in the
@@ -101,7 +107,7 @@ Remember, you do _not_ have control to _disable_ dispatching.
 To enable transition towards allowing certain or all types, there are a few
 additional options, for example:
 ```python
-onp = get_array_module(*arrays, modules="numpy", future_modules="dask.array")
+npx = get_array_module(*arrays, modules="numpy", future_modules="dask.array")
 ```
 could be a spelling to say that currently NumPy is fully supported, and `dask`
 is supported, but the support will warn (the user can silence the warning).
@@ -149,13 +155,13 @@ array-module, to supporting array-module always.
 This can currently be implemented by using:
 
 ```python
-onp = get_array_module(*arrays,
+npx = get_array_module(*arrays,
             modules="numpy", future_modules=None, fallback="warn")
-onp.asarray(arrays[0])  # etc.
+npx.asarray(arrays[0])  # etc.
 ```
 For a library that used to just call `np.asarray()` *during transition* and
 ```
-onp = get_array_module(*arrays)
+npx = get_array_module(*arrays)
 ```
 when the transition is done.
 

@@ -169,7 +169,7 @@ cdef _give_fallback_warning(array_types, int stacklevel, fallback):
 
 
 def get_array_module(*args, default=numpy, modules=None, future_modules=False,
-                     fallback=False, int stacklevel=1, enabled=None):
+                     fallback=False, int stacklevel=1, opt_in=False):
     """
     Return the array module based on the passed in objects (or actually
     their types).
@@ -206,19 +206,15 @@ def get_array_module(*args, default=numpy, modules=None, future_modules=False,
     stacklevel : int, default 1
         The warning stacklevel to use, defaults to 1. Most library functions
         should set this to 2 or higher so that the user code line is reported.
-    enabled : True or None
-        Allows forcing the use of dispatching for libraries which wish to
-        use it as part of their default API and that are not transitioning.
-        This can be used for newly developed code. Libraries should probably
-        be consistent and likely most libraries should not use this.
+    opt_in : bool
+        If set to ``True`` the user has to use `ensure_dispatching`
+        or `enable_dispatching_globally` for `get_array_module` to be active.
     """
     # Well, this turned out more like C code than cython code :)
 
-    if enabled is None:
+    if opt_in:
         if not _is_dispatching_enabled():
             return default
-    elif enabled is not True:
-        raise RuntimeError("enabled must be True or None.")
 
     cdef Py_ssize_t num_args = len(args)
 

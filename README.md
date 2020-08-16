@@ -10,11 +10,9 @@ This proposal is written up in [NEP 37](https://numpy.org/neps/nep-0037-array-mo
 These enable things that may never be part of the final implementation.
 There are three reasons for this:
 
-1. The implementation here **requires explicit Opt-In** by the end-user
-   because this was an early thought when scikit-learn experimented with
-   using this type of functionality.
-   It is unclear whether this is a desirable, and may also depend on other
-   API choices.
+1. The first implementation required explicit Opt-In by the user by either
+   enabling dispatching globally or using a context manager. This has been
+   reversed: A library can require Opt-In, but dispatching is the default.
 2. To allow to see how a transition may look like and can be implemented.
 3. To provide library authors with the flexibility to try various models.
    It is not clear that library authors should have the option to limit
@@ -38,31 +36,39 @@ the users to try and use different array-types at their own risk.
 ## For End-Users
 
 End users will not use much of the module, except to enable the behaviour
-to begin with or get control over `FutureWarnings`.
+(which is only necessary if a library explicitly requires it!)
+or control `FutureWarnings`.
 In some cases a library is also a (localized) end-user.
 
-For end users, there are two functionalities available:
+For end users, there are thus two functionalities available:
 ```python
 import numpy_dispatch
 
 numpy_dispatch.enable_dispatching_globally()
 ```
-To globally enable dispatching. This function is meant to be called
+To Opt-In globally for all libraries which require explicit Opt-In.
+This function is meant to be called
 *exactly* once and *only* by the end-user.
 Calling the function more than once currently gives a warning.
 The global switch *cannot* be disabled.
+A user of this flag must be prepared for changes in behaviour e.g. when
+updating downstream libraries.
 
-In some cases local control may be necessary. Locally enabling dispatching
-can be achieved in a thread-safe manner by using:
+Local control is more safe and may be required in some cases.
+Locally enabling dispatching can be achieved in a thread-safe manner by using:
 ```python
 import numpy_dispatch
 
 with numpy_dispatch.ensure_dispatching():
     dispatching_aware_library_function(arr1, arr2)
 ```
-We currently assume that disabling dispatching is never necessary.
-To effectively disable dispatching, it will be necessary to cast all inputs
-to NumPy arrays.
+We currently assume that disabling dispatching is not necessary
+(once enabled within a context/globally).
+Effectively, disabling is only possible by converting all inputs to NumPy
+arrays.
+
+This control over dispatching behaviour using a context manager may be useful
+in libraries.
 
 
 ## For library authors
@@ -120,9 +126,10 @@ currently.
 
 Library authors further have the option to provide the `default`, in case the
 library is originally written for something other than NumPy.
-Additionally, since some libraries may want to always use dispatching as
-a design choice, `enabled={True, None}` can currently be passed in.
-Disabling dispatching is currently specifically not supported.
+
+Additionally, since some libraries may want to disable the use of dispatching
+without explicit opt-in as a design choice (or maybe during an experimental
+stage).  These libraries can use `opt_in=False` to signal this.
 
 
 ## Transitioning for users and libraries

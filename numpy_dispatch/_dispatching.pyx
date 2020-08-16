@@ -62,7 +62,7 @@ cdef dict _get_threadlocal_dict():
     """
     cdef PyObject *thedict = PyThreadState_GetDict();
     if (thedict == NULL):
-        thedict = PyEval_GetBuiltins();
+        thedict = PyEval_GetBuiltins()
 
     return <dict>thedict
 
@@ -271,7 +271,9 @@ def get_array_module(*args, default=numpy, modules=None, future_modules=False,
         # Note: In theory we could add a super fast cache for this tuple?
         pytype_tuple = PyTuple_New(num_arrays)
         for i in range(num_arrays):
-            PyTuple_SET_ITEM(pytype_tuple, i, type(array_objects[i]))
+            arrtype = type(array_objects[i])
+            Py_INCREF(arrtype)
+            PyTuple_SET_ITEM(pytype_tuple, i, arrtype)
 
         for i in range(num_arrays):
             arr = array_objects[i]
